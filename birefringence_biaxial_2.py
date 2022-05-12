@@ -8,6 +8,7 @@ Created on Thu Nov  5 16:44:47 2020
 
 """
 Calculating the exptected birefringence from a ray passing through a biaxial crystal from an arbitrary direction. Biaxial is meant to be in a general formalism. So, this code should also represent the case of a uniaxial crystal in which we have strain in a certain direction, thus altering the index ellipsoid.
+It is assumed that the crystal parameters do not change throuout the beam path (refer to "birefringence_biaxial_3.py")!
 
 k --> wavevector
 
@@ -17,12 +18,19 @@ The preferred direction is toward the z-axis, meaning that the surface and the i
 
 import numpy as np
 import matplotlib.pyplot as plt
-# from matplotlib.tri import Triangulation
+import pandas as pd
 from scipy.spatial.transform import Rotation as R
 from birefringence_modules import RotMat, air_crystal, crystal_air_f, crystal_air_s
 
 plt.close('all')
+fontsize = 14
+plt.rcParams["font.size"] = fontsize
+plt.rcParams.update({
+    "text.usetex" : True,
+    "font.family" : "Helvetica"
+    })
 
+#%%
 # =============================================================================
 # Functions
 # =============================================================================
@@ -110,6 +118,7 @@ def wavefront_coor(h, rot, w, w0, Pos0, x, offset):
     #     r[i] = np.array(r0[i])
     return r0
 
+#%%
 # =============================================================================
 # Dictonaries
 # =============================================================================
@@ -134,9 +143,11 @@ E_tf_t = {}
 E_ts_t = {}
 E_tf = {}
 E_ts = {}
+I = {}
 E_end = {}
 PlanePoints = {}
 
+#%%
 # =============================================================================
 # Orientation of the crystal
 # =============================================================================
@@ -144,34 +155,35 @@ PlanePoints = {}
 local_N_vec = np.array([0,0,1])    # Normal Vector of surface in global coordinates
 center = [0,0,0.075]                # center-point of the crystal (dimensions in meter)
 L = 2*center[2]                     # length of the crystal
-nSa = 1.754                         # refractive index of Fast-axis of biaxial medium
-nMa = 1.754-2.8e-6                 # refractive index of Medium-axis of biaxial medium
+nSa = 1.754#-1.5e-6                         # refractive index of Fast-axis of biaxial medium
+nMa = 1.754 - 2.8e-6                 # refractive index of Medium-axis of biaxial medium
 nFa = 1.747                         # refractive index of Slow-axis of biaxial medium
 
+#%%
 # =============================================================================
 # Defining incoming beam and orientation
 # =============================================================================
 """angle of k in xz plane (0 --> z) """
 alpha = np.radians(0.0)  
 """angle of k from xz plane to y (0 --> xz)"""                                                                
-beta =  np.radians(0)#np.arcsin(np.sin(np.radians(3/4))*nMa) - np.radians(0)
+beta =  np.radians(2.0)#np.arcsin(np.sin(np.radians(3/4))*nMa) - np.radians(0)
 """"angle of Ca in medium 1 in xz plane (0 --> z)"""
-gamma1 = np.radians(0)
+gamma1 = np.radians(0.0)
 """"angle of Ca in medium 1 from xz plane to y (0 --> xz)"""
-delta1 = np.radians(0) 
+delta1 = np.radians(0.0) 
 """"angle of Ca in medium 2 in xz plane (0 --> z) """
 gamma2 = np.radians(0.0)
 """"angle of Ca in medium 2 from xz plane to y (0 --> xz)"""
-delta2 = np.radians(0)
+delta2 = np.radians(0.0)
 """"angle of N_vec in xz plane"""
 epsilon = np.radians(0.0)
 """"angle of N_vec from xz plane to y"""
-zeta = np.radians(0)
+zeta = np.radians(0.0)
 
 WL = 1.064e-6
 w = 2*np.pi*299792458/WL
-InputBeamPoints = wavefront_coor(4, 8, WL, 0.00005, 0, -0.5, [0, 0, 0.4])
-dInputBeamPoints = wavefront_coor(4, 8, WL, 0.00005, 0, 0.01, [0, 0, 0.4])
+InputBeamPoints = wavefront_coor(1, 1, WL, 0.00005, 0, -0.5, [0, 0, 0.4])
+dInputBeamPoints = wavefront_coor(1, 1, WL, 0.00005, 0, 0.01, [0, 0, 0.4])
 for i in range(len(InputBeamPoints)):
     kloc[i+1] = normalize(np.add( np.array(dInputBeamPoints[i]) , -1*np.array(InputBeamPoints[i]) ))
 # kloc[1] = normalize([0,0,1])
@@ -187,7 +199,7 @@ eps2 = np.array([[nSa**2,0,0], [0,nMa**2,0], [0,0,nFa**2]])
 eps_sap = np.dot(RotMNv, np.dot(np.dot(RotMN2,np.dot(eps2,np.transpose(RotMN2))), np.transpose(RotMNv)))
 eps2 = np.dot(RotMNz, np.dot(eps_sap, np.transpose(RotMNz)))
 
-eps1 = np.array([[1.0**2,0,0], [0,1.0**2,0], [0,0,1.0**2]])
+eps1 = np.array([[1**2,0,0], [0,1**2,0], [0,0,1**2]])
 eps_air = np.dot(RotMNv, np.dot(np.dot(RotMN1,np.dot(eps1,np.transpose(RotMN1))), np.transpose(RotMNv)))
 
 for i in kloc:
@@ -213,9 +225,11 @@ for i in kloc:
             k_Rot_beta = -k_Rot_beta
         k_Rot[i] = [k_Rot_alpha, k_Rot_beta]
     else:
-        theta_inc[i] = np.radians(45)
+        theta_inc[i] = np.radians(0)
+        k_Rot[i] = [alpha, beta]
     K_inc = np.array([[0,-kin[i][2],kin[i][1]], [kin[i][2],0,-kin[i][0]], [-kin[i][1],kin[i][0],0]])
 
+#%%
 # =============================================================================
 # Running code
 # =============================================================================
@@ -230,6 +244,7 @@ for i in kloc:
     F2 = crystal_air_s(F0[3][1], eps_air, eps2, N_vec_out, F0[2][2], F0[0][1], F0[5][2], F0[8], F0[7], F0[9], s_vec[i], p_vec, RotMk)
 
     n_tr[i] = F0[0]
+    n_tr[i] = (np.array(n_tr[i]) + 0e-14).tolist()  # What if there is an error...
     S_inc[i] = F0[2][0]
     S_tf[i] = F0[2][1]
     S_ts[i] = F0[2][2]
@@ -244,7 +259,16 @@ for i in kloc:
     E_ts_t[i] = F2[8][0]
     E_tf[i] = F0[7]
     E_ts[i] = F0[9]
+    
+    I[i] = [F0[5], F1[5], F2[5]]
+    
+    df3 = pd.DataFrame([I[i][0][0], I[i][1][1] + I[i][2][1], I[i][0][3] + I[i][1][2] + I[i][2][2] + I[i][1][3] + I[i][2][3]], ['incoming Intensity', 'transmitted Intensity', 'reflected Intensity'], columns=[''])
+    print('')
+    print('Intensities:')
+    print(df3)
+    print()
 
+#%%
 # =============================================================================
 # Calculation of Polarization Changes
 # =============================================================================
@@ -269,6 +293,7 @@ for i in kloc:
     Eend0 = np.array(Eend0)
     E_end[i] = Eend0
 
+#%%
 # =============================================================================
 # graphical presentation
 # =============================================================================
@@ -276,7 +301,6 @@ for i in kloc:
 from matplotlib.patches import Circle
 import mpl_toolkits.mplot3d.art3d as art3d
 
-# =============================================================================
 fig = plt.figure(figsize=(8,8))
 ax = fig.add_subplot(111, projection='3d')
 
@@ -357,12 +381,10 @@ ax.view_init(elev=0., azim=60, vertical_axis = 'x')
 
 plt.show()
 
-# =============================================================================
+# %%
 
 from matplotlib.patches import Rectangle
 import matplotlib as mpl
-
-# =============================================================================
 
 if len(kloc) == 1:
 
@@ -416,14 +438,12 @@ if len(kloc) == 1:
     ax[1].grid(True)
     plt.show()
 
-# =============================================================================
+# %%
 
 from matplotlib.patches import Ellipse
 
-# =============================================================================
-
 if len(kloc) == 1:
-    fig = plt.figure(figsize=(6,6))
+    fig = plt.figure(figsize=(7,6))
     ax = fig.add_subplot(111)
 
     rot_loc = np.arccos(np.dot(np.dot(np.linalg.inv(RotMk), s_vec[i]), np.array([1,0,0])))
@@ -440,18 +460,22 @@ if len(kloc) == 1:
     theta = np.degrees(np.arctan2(np.max(Ax[:,1]), np.max(Ax[:,0])))
 
     ell = Ellipse((0,0), 2*a, 2*b, angle = rot, facecolor = 'none', edgecolor = 'b', lw = 2, label = 'transmitted field')
+    print("Ellipticity: "+str(np.sqrt(abs(a**2 - b**2)/a**2)))
+    print("Rotation: "+str(rot)+" deg")
     ax.add_patch(ell)
     ax.plot( [Ax_inc[1], -Ax_inc[1]], [Ax_inc[0], -Ax_inc[0]], color='r', alpha = 0.5, label = 'incoming field')
-    ax.plot([0,np.max(Ax[:,1])] , [0,np.max(Ax[:,0])], color = 'k', linestyle = '--', label = 'transmitted field direction')
+    # ax.plot([0,np.max(Ax[:,1])] , [0,np.max(Ax[:,0])], color = 'k', linestyle = '--', label = 'transmitted field direction')
 
-    ax.set_title("ξ (pol. angle) = "+str(round(theta,3))+" deg")
-    # ax.set_title("γ (input polarization) = "+str(round(np.degrees(theta_inc[i]),3))+" deg")
+    # ax.set_title(r"$\xi$ (pol. angle) = "+str(round(theta,3))+" deg", fontsize = fontsize)
+    ax.set_title(r"$\gamma$ (input polarization) = "+str(round(np.degrees(theta_inc[i]),3))+"$^\circ$", fontsize = fontsize + 2)
     ax.set_xlabel('E in p-direction')
+    ax.tick_params(axis = 'x')
     ax.set_xlim(-1,1)
     ax.set_ylabel('E in s-direction')
+    ax.tick_params(axis = 'y')
     ax.set_ylim(-1,1)
     ax.grid(True)
-    ax.legend(fontsize = 8)
+    ax.legend(loc = 'lower right')
     plt.show()
 
 else:

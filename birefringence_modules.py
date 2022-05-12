@@ -10,6 +10,11 @@ import sympy as sp
 import numpy as np
 import pandas as pd
 
+def normalize(x):
+    x = np.array(x)
+    x_norm = np.linalg.norm(x) + 1e-14
+    return x / x_norm
+
 def RotMat(alpha,beta):
     return np.array([[np.cos(alpha),-np.sin(alpha)*np.sin(beta),np.sin(alpha)*np.cos(beta)],
                  [0,np.cos(beta),np.sin(beta)],
@@ -33,8 +38,8 @@ def n_e(kin, eps1, eps2, N_vec, n_inc):
     """
     # if opt == 'sympy':
     n_prime = sp.symbols('n_prime')
-    k_in = sp.Matrix([sp.Rational(kin[0]), sp.Rational(kin[1]), sp.Rational(kin[2])])
-    N_v = sp.Matrix([sp.Rational(N_vec[0]), sp.Rational(N_vec[1]), sp.Rational(N_vec[2])])
+    k_in = sp.Matrix([sp.Rational(sp.Float(kin[0])), sp.Rational(sp.Float(kin[1])), sp.Rational(sp.Float(kin[2]))])
+    N_v = sp.Matrix([sp.Rational(sp.Float(N_vec[0])), sp.Rational(sp.Float(N_vec[1])), sp.Rational(sp.Float(N_vec[2]))])
     # k_in = sp.Matrix([kin[0], kin[1], kin[2]])
     # N_v = sp.Matrix([N_vec[0], N_vec[1], N_vec[2]])
     
@@ -167,7 +172,7 @@ def k_r(n_inc,n_list,kin,N_vec):
         k_rs = k_rs/np.linalg.norm(k_rs)
         k = [k_rf, k_rs]
     else:
-        k_r = (n_inc*kin + np.multiply(-n_inc*np.dot(kin,N_vec) - np.sqrt(n_inc**2*np.dot(kin,N_vec)**2 + n_list**2-n_inc**2),N_vec))
+        k_r = (n_inc*kin + np.multiply(-n_inc*np.dot(kin,N_vec) - np.sqrt(n_inc**2*np.dot(kin,N_vec)**2 + n_list[0]**2-n_inc**2),N_vec))
         k_r = k_r/np.linalg.norm(k_r)
         k = [k_r]
     return k
@@ -367,7 +372,7 @@ def air_crystal(kin, eps1, eps2, N_vec, s_vec, p_vec, theta_inc, n_inc, I_inc, R
     else:
         s1 = np.cross(kin,N_vec)
     s2 = np.cross(N_vec,s1)
-
+    
     F = np.array([[np.dot(s1,E_tf), np.dot(s1,E_ts), np.dot(-s1,E_rs), np.dot(-s1,E_rp)],
                   [np.dot(s2,E_tf), np.dot(s2,E_ts), np.dot(-s2,E_rs), np.dot(-s2,E_rp)],
                   [np.dot(s1,H_tf), np.dot(s1,H_ts), np.dot(-s1,H_rs), np.dot(-s1,H_rp)],
@@ -645,3 +650,129 @@ def crystal_air_s(k_tr, eps1, eps2, N_vec, S_ts, n_inc, I_inc, E_t_s, E_tf, E_ts
     df2 = pd.DataFrame([str(E_inc_s), str(n_tr_s), str(n_re_s), str(E_ts), str(E_tp), str(E_rf), str(E_rs), str(S[0]), str(S[1]), str(S[2]), str(S[3]), str(S[4]), str(E_ts_t),  str(E_rs_f), str(E_rs_s)] , ['E-field (slow)','refractive index transmission', 'refractive index reflection', 'transmitted E-field direction (s)', 'transmitted E-field direction (p)', 'reflected E-field direction (fast)', 'reflected E-field direction (slow)','Poynting vector (fast)','Poynting vector (s)','Poynting vector (p)','Poynting vector (fast-reflected)','Poynting vector (slow-reflected)','transmitted E-field','reflected E-field (fast)','reflected E-field (slow)'], columns = [''])
     
     return n_tr_s, n_re_s, S, k_tr_s, k_re_s, I2, E_ts, E_tp, [E_ts_t, E_rs_f, E_rs_s], df2
+
+def crystal_crystal(N_layer, k_trans_inc, eps, N_vec, S_trans_inc, n_inc, I_inc, E_field_trans, E_field_trans_norm, E_ts0, s_vec, p_vec, RotMk):
+    
+    k_transmission = []
+    n_transmission = []
+    S_transmission = []
+    E_transmission = []
+    P = []
+    
+    k_transmission.append(k_trans_inc)
+    n_transmission.append(n_inc)
+    S_transmission.append(S_trans_inc)
+    E_transmission.append(E_field_trans)
+    
+    for i in range(N_layer - 1):
+        n_tr = n_e(k_transmission[i], eps[i], eps[i+1], N_vec[i], n_transmission[i])
+        n_tr = list(dict.fromkeys(n_tr))
+        n_re = n_e(k_transmission[i], eps[i], eps[i], N_vec[i], n_transmission[i])
+    # if np.linalg.norm(np.cross(kin, N_vec)) > 0:
+    #     n_re_s = list(dict.fromkeys(n_re_s))
+    
+        AOI_s = np.arccos(np.dot(-N_vec[i], S_transmission[i]))
+        k_tr = k_t(n_transmission[i], n_tr, AOI_s, k_transmission[i], N_vec[i])
+        k_re = k_r(n_transmission[i], n_re, k_transmission[i], N_vec[i])
+
+        EMT = Eigen_matrix(k_tr, eps[i+1], n_tr)
+        EMR = Eigen_matrix_ref(k_re, eps[i], n_re)
+        K_inc = np.array([[0,-k_transmission[i][2],k_transmission[i][1]], [k_transmission[i][2],0,-k_transmission[i][0]], [-k_transmission[i][1],k_transmission[i][0],0]])
+
+        E_inc = E_transmission[i]
+        E_inc_pseudo = np.cross(S_transmission[i], E_transmission[i]) / (np.linalg.norm(np.cross(S_transmission[i], E_transmission[i])) + 1e-14)         # Pseudo field with no power
+        # H_inc_s = np.dot(n_transmission[i] * EMT[1], E_inc)
+        # H_inc_f = np.dot(n_transmission[i] * EMT[1], E_inc_pseudo)
+
+        if np.all(EMT[0]==EMT[1]) == True:
+            SVD_tf = np.linalg.svd(EMT[0])
+            SVD_ts = np.linalg.svd(EMT[1])
+            E_tf = SVD_tf[0][:,2]
+            E_ts = SVD_ts[0][:,1]
+        else:
+            SVD_tf = np.linalg.svd(EMT[0])
+            SVD_ts = np.linalg.svd(EMT[1])
+            if np.all(SVD_tf[0][:,2]==SVD_ts[0][:,2]) == True:
+                E_tf = SVD_tf[0][:,2]
+                E_ts = SVD_ts[0][:,1]
+            else:    
+                E_tf = SVD_tf[0][:,2]
+                E_ts = SVD_ts[0][:,2]
+        SVD_r = np.linalg.svd(EMR[0])
+        E_rf = SVD_r[0][:,2]
+        E_rs = SVD_r[0][:,1]
+        if abs(np.dot(E_rs,s_vec)) < 1e-14:
+            E_rf = s_vec
+            E_rs = SVD_r[0][:,2]
+
+        E_tf0 = E_tf[:]
+        E_ts0 = E_ts[:]
+        if len(EMT) == 2:
+            H_tf = np.dot(n_tr[0]*EMT[1],E_tf)
+            H_ts = np.dot(n_tr[0]*EMT[1],E_ts)
+        else:
+            H_tf = np.dot(n_tr[0]*EMT[2],E_tf)
+            H_ts = np.dot(n_tr[1]*EMT[3],E_ts)
+        H_rf = np.dot(n_re[0]*EMR[1],E_rf)
+        H_rs = np.dot(n_re[0]*EMR[1],E_rs)
+        
+        S_tf = np.real(np.cross(E_tf,np.conj(H_tf)))/np.linalg.norm(np.real(np.cross(E_tf,np.conj(H_tf))))
+        S_ts = np.real(np.cross(E_ts,np.conj(H_ts)))/np.linalg.norm(np.real(np.cross(E_ts,np.conj(H_ts))))
+        S_rf = np.real(np.cross(E_rf,np.conj(H_rf)))/np.linalg.norm(np.real(np.cross(E_rf,np.conj(H_rf))))
+        S_rs = np.real(np.cross(E_rs,np.conj(H_rs)))/np.linalg.norm(np.real(np.cross(E_rs,np.conj(H_rs))))
+        
+        if np.linalg.norm(np.cross(k_tr, N_vec[i])) == 0:
+            s1 = np.dot(RotMk,np.array([1,0,0]))
+        else:
+            s1 = np.cross(k_tr, N_vec[i])
+        s2 = np.cross(N_vec[i], s1)
+    
+        F = np.array([[np.dot(s1,E_tf), np.dot(s1,E_ts), np.dot(-s1,E_rf), np.dot(-s1,E_rs)],
+                      [np.dot(s2,E_tf), np.dot(s2,E_ts), np.dot(-s2,E_rf), np.dot(-s2,E_rs)],
+                      [np.dot(s1,H_tf), np.dot(s1,H_ts), np.dot(-s1,H_rf), np.dot(-s1,H_rs)],
+                      [np.dot(s2,H_tf), np.dot(s2,H_ts), np.dot(-s2,H_rf), np.dot(-s2,H_rs)]])
+
+        if np.linalg.norm(np.cross(S_transmission[i], N_vec[i])) == 0:
+            E_inc_s_norm = np.dot(RotMk, np.array([1,0,0]))
+        else:
+            E_inc_s_norm = np.cross(S_transmission[i], N_vec)/np.linalg.norm(np.cross(S_transmission[i], N_vec[i]))
+        E_inc_p_norm = np.cross(S_transmission[i],E_inc_s_norm)
+        H_inc_s_norm = np.dot(n_transmission[i]*K_inc, E_inc_s_norm)
+        H_inc_p_norm = np.dot(n_transmission[i]*K_inc, E_inc_p_norm)
+
+        A_f = np.dot(np.linalg.inv(F),C_vector(N_vec,s1,s2,K_inc,E_inc_s_norm,E_inc_p_norm,H_inc_s_norm,H_inc_p_norm)[0])
+        A_s = np.dot(np.linalg.inv(F),C_vector(N_vec,s1,s2,K_inc,E_inc_s_norm,E_inc_p_norm,H_inc_s_norm,H_inc_p_norm)[1])
+
+        a_ftf = A_f[0]            # transmission coefficient to fast-ray
+        a_fts = A_f[1]            # transmission coefficient to slow-ray
+        a_frf = A_f[2]            # reflection coefficient to fast-ray
+        a_frs = A_f[3]            # reflection coefficient to slow-ray
+
+        a_stf = A_s[0]            # transmission coefficient to fast-ray
+        a_sts = A_s[1]            # transmission coefficient to slow-ray
+        a_srf = A_s[2]            # reflection coefficient to fast-ray
+        a_srs = A_s[3]            # reflection coefficient to slow-ray
+        
+        """ Calculation of a weighted average from the two resulting rays """
+        
+        weight_ftf = a_ftf**2 / np.sqrt(a_ftf**2 + a_fts**2)
+        weight_fts = a_fts**2 / np.sqrt(a_ftf**2 + a_fts**2)
+        weight_frf = a_frf**2 / np.sqrt(a_frf**2 + a_frs**2)
+        weight_frs = a_frs**2 / np.sqrt(a_frf**2 + a_frs**2)
+        
+        n_transmission.append(weight_ftf * n_tr[0] + weight_fts * n_tr[1])
+        n_reflection = weight_frf * n_re[0] + weight_frs * n_re[1]
+        k_transmission.append(normalize(weight_ftf * k_tr[0] + weight_fts * k_tr[1]))
+        k_reflection = normalize(weight_frf * k_re[0] + weight_frs * k_re[1])
+        S_transmission.append(normalize(weight_ftf * S_tf + weight_fts * S_ts))
+        
+        P_t = np.dot( np.transpose( np.array( [a_ftf*E_tf + a_fts*E_ts, a_stf*E_tf + a_sts*E_ts, S_transmission[i+1]] ) ) , np.array( [E_inc_s_norm, E_inc_p_norm, S_transmission[i]] ) )
+        
+        P.append(P_t)
+    
+    """ Calculation of resulting P-vector through multiplication of all P-vectors from each layer """
+    P0 = 1
+    for i in range(N_layer - 1):
+        P0 = P0 * P[i]
+    
+    return P0, n_transmission, k_transmission, S_transmission
